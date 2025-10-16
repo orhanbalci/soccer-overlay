@@ -49,9 +49,11 @@ class SoccerScoreOverlay:
     
     # Lineup overlay settings
     LINEUP_BACKGROUND_COLOR = (0, 0, 0, 200)       # Semi-transparent black background
+    LINEUP_NAME_BOX_COLOR = (56, 226, 196)         # Color for player name boxes (defaults to SCORE_BOX_COLOR)
     LINEUP_TEAM_TEXT_COLOR = 'white'               # Team name text color
     LINEUP_PLAYER_TEXT_COLOR = 'white'             # Player text color
-    LINEUP_DIRECTOR_TEXT_COLOR = 'yellow'          # Director text color
+    LINEUP_DIRECTOR_TEXT_COLOR = 'white'          # Director text color
+    LINEUP_NUMBER_BOX_COLOR = (40, 0, 70)          # Color for player number boxes (defaults to TEAM_BOX_COLOR)
     LINEUP_DISPLAY_DURATION = 8.0                  # How long to show lineup (seconds)
     LINEUP_ANIMATION_DURATION = 0.5                # Duration for each item slide animation (seconds)
     LINEUP_STAGGER_DELAY = 0.2                     # Delay between each item animation (seconds)
@@ -262,7 +264,7 @@ class SoccerScoreOverlay:
             director_font_size = 20
             lineup_width = 350
             item_height = scoreboard_height
-            padding = 10
+            padding = 0
             number_box_width = 40
             name_box_width = lineup_width - number_box_width - accent_width
         elif res_category == 'medium':
@@ -271,7 +273,7 @@ class SoccerScoreOverlay:
             director_font_size = 26
             lineup_width = 400
             item_height = scoreboard_height
-            padding = 12
+            padding = 0
             number_box_width = 50
             name_box_width = lineup_width - number_box_width - accent_width
         else:  # high
@@ -280,7 +282,7 @@ class SoccerScoreOverlay:
             director_font_size = 32
             lineup_width = 500
             item_height = scoreboard_height
-            padding = 15
+            padding = 0
             number_box_width = 60
             name_box_width = lineup_width - number_box_width - accent_width
         
@@ -305,18 +307,19 @@ class SoccerScoreOverlay:
         current_y = 0
         item_index = 0
         
-        # Create team name item (single box with team accent)
-        team_item = self._create_lineup_item_with_background(
-            text=team_name,
-            fontsize=team_font_size,
-            text_color=self.TEXT_COLOR_TEAM,
-            width=lineup_width,
+        # Create team name item (with empty number box for consistency)
+        team_item = self._create_lineup_player_item(
+            player_number="",  # Empty number for team name
+            player_name=team_name.upper(),  # Convert to upper case
+            player_font_size=team_font_size,
+            number_box_width=number_box_width,
+            name_box_width=name_box_width,
             height=item_height,
             accent_color=team_accent_color,
             accent_width=accent_width,
             text_margin=text_margin,
-            center_text=True,
-            total_duration=total_duration
+            total_duration=total_duration,
+            name_text_color=self.LINEUP_TEAM_TEXT_COLOR
         )
         
         team_positioned = team_item.set_position((0, current_y))
@@ -333,7 +336,7 @@ class SoccerScoreOverlay:
         for player in players:
             player_item = self._create_lineup_player_item(
                 player_number=str(player['number']),
-                player_name=player['name'],
+                player_name=self._format_name(player['name']),  # Format with title case first name, upper case surname
                 player_font_size=player_font_size,
                 number_box_width=number_box_width,
                 name_box_width=name_box_width,
@@ -354,18 +357,19 @@ class SoccerScoreOverlay:
             current_y += item_height + padding
             item_index += 1
         
-        # Create director item (single box with team accent)
-        director_item = self._create_lineup_item_with_background(
-            text=f"Director: {director}",
-            fontsize=director_font_size,
-            text_color=self.LINEUP_DIRECTOR_TEXT_COLOR,
-            width=lineup_width,
+        # Create director item (with TD in number box)
+        director_item = self._create_lineup_player_item(
+            player_number="TD",  # TD for Technical Director
+            player_name=self._format_name(director),  # Format with title case first name, upper case surname
+            player_font_size=director_font_size,
+            number_box_width=number_box_width,
+            name_box_width=name_box_width,
             height=item_height,
             accent_color=team_accent_color,
             accent_width=accent_width,
             text_margin=text_margin,
-            center_text=True,
-            total_duration=total_duration
+            total_duration=total_duration,
+            name_text_color=self.LINEUP_DIRECTOR_TEXT_COLOR
         )
         
         director_positioned = director_item.set_position((0, current_y))
@@ -402,35 +406,208 @@ class SoccerScoreOverlay:
         Returns:
             Animated clip
         """
+        # Get the final x position from the clip (where it should end up)
+        if hasattr(clip, 'pos') and clip.pos is not None:
+            if callable(clip.pos):
+                # If pos is a function, evaluate it at t=0 to get initial position
+                initial_pos = clip.pos(0)
+                if isinstance(initial_pos, tuple):
+                    final_x = initial_pos[0]
+                else:
+                    final_x = 0
+            else:
+                # If pos is a tuple
+                if isinstance(clip.pos, tuple):
+                    final_x = clip.pos[0]
+                else:
+                    final_x = 0
+        else:
+            final_x = 0
+        
         def position_function(t):
             # Phase 1: Wait for start delay
             if t < start_delay:
-                # Start below the container (off-screen)
-                start_y = container_width + 100  # Start off-screen below
-                return (clip.pos[0], start_y)
+                # Start off-screen to the left
+                start_x = -container_width - 100  # Start off-screen left
+                return (start_x, final_y)
             
-            # Phase 2: Slide in animation
+            # Phase 2: Slide in animation from left
             elif t < start_delay + anim_duration:
                 progress = (t - start_delay) / anim_duration
                 eased_progress = Easing.ease_out_bounce(progress)
-                start_y = container_width + 100
-                current_y = start_y + (final_y - start_y) * eased_progress
-                return (clip.pos[0], current_y)
+                start_x = -container_width - 100
+                current_x = start_x + (final_x - start_x) * eased_progress
+                return (current_x, final_y)
             
             # Phase 3: Stay in position during display
             elif t < total_animation_time + display_duration:
-                return (clip.pos[0], final_y)
+                return (final_x, final_y)
             
-            # Phase 4: Slide out animation
+            # Phase 4: Slide out animation to the left
             else:
                 exit_progress = (t - (total_animation_time + display_duration)) / anim_duration
                 exit_progress = min(1.0, exit_progress)
                 eased_progress = Easing.ease_in_quad(exit_progress)
-                end_y = container_width + 100  # Exit off-screen below
-                current_y = final_y + (end_y - final_y) * eased_progress
-                return (clip.pos[0], current_y)
+                end_x = -container_width - 100  # Exit off-screen left
+                current_x = final_x + (end_x - final_x) * eased_progress
+                return (current_x, final_y)
         
         return clip.set_position(position_function)
+    
+    def _create_lineup_item_with_background(self, text, fontsize, text_color, width, height, 
+                                          accent_color, accent_width, text_margin, center_text=False, 
+                                          total_duration=1.0):
+        """
+        Create a lineup item with background and accent bar (for team name and director)
+        
+        Args:
+            text: Text to display
+            fontsize: Font size for the text
+            text_color: Color of the text
+            width: Width of the item
+            height: Height of the item
+            accent_color: Color of the accent bar
+            accent_width: Width of the accent bar
+            text_margin: Margin from accent bar to text
+            center_text: Whether to center the text horizontally
+            total_duration: Duration for the clip
+        
+        Returns:
+            Composite clip with background and text
+        """
+        # Create background
+        background = ColorClip(
+            size=(width, height),
+            color=self.LINEUP_NAME_BOX_COLOR  # Use configurable name box color
+        ).set_duration(total_duration)
+        
+        # Create accent bar
+        accent_bar = ColorClip(
+            size=(accent_width, height),
+            color=accent_color
+        ).set_duration(total_duration)
+        
+        # Create text
+        text_clip = TextClip(
+            text,
+            fontsize=fontsize,
+            color=text_color,
+            font=self.FONT_FAMILY,
+            method='label'
+        ).set_duration(total_duration)
+        
+        # Position elements
+        accent_positioned = accent_bar.set_position((0, 0))
+        
+        if center_text:
+            text_x = (width - text_clip.w) // 2
+        else:
+            text_x = accent_width + text_margin
+        
+        text_y = (height - text_clip.h) // 2
+        text_positioned = text_clip.set_position((text_x, text_y))
+        
+        # Composite all elements
+        return CompositeVideoClip([
+            background,
+            accent_positioned,
+            text_positioned
+        ], size=(width, height))
+    
+    def _create_lineup_player_item(self, player_number, player_name, player_font_size, 
+                                 number_box_width, name_box_width, height, accent_color, 
+                                 accent_width, text_margin, total_duration=1.0, name_text_color=None):
+        """
+        Create a player item with separate number and name boxes
+        
+        Args:
+            player_number: Player number as string
+            player_name: Player name
+            player_font_size: Font size for player text
+            number_box_width: Width of the number box
+            name_box_width: Width of the name box
+            height: Height of the item
+            accent_color: Color of the accent bar
+            accent_width: Width of the accent bar
+            text_margin: Margin from accent bar to text
+            total_duration: Duration for the clip
+            name_text_color: Custom color for name text (if None, uses default player color)
+        
+        Returns:
+            Composite clip with number box and name box
+        """
+        total_width = number_box_width + name_box_width + accent_width
+        
+        # Create background for the entire item
+        background = ColorClip(
+            size=(total_width, height),
+            color=self.LINEUP_NUMBER_BOX_COLOR  # Use configurable number box color
+        ).set_duration(total_duration)
+        
+        # Create accent bar
+        accent_bar = ColorClip(
+            size=(accent_width, height),
+            color=accent_color
+        ).set_duration(total_duration)
+        
+        # Create number box background (use name box color)
+        number_bg_color = self.LINEUP_NAME_BOX_COLOR
+        number_background = ColorClip(
+            size=(number_box_width, height),
+            color=number_bg_color
+        ).set_duration(total_duration)
+        
+        # Create player number text (only if number is not empty)
+        if player_number:
+            number_text = TextClip(
+                player_number,
+                fontsize=player_font_size,
+                color='black',  # Use black for number text
+                font=self.FONT_FAMILY,
+                method='label'
+            ).set_duration(total_duration)
+        else:
+            number_text = None
+        
+        # Create player name text with custom color if provided
+        text_color = name_text_color if name_text_color is not None else self.LINEUP_PLAYER_TEXT_COLOR
+        name_text = TextClip(
+            player_name,
+            fontsize=player_font_size,
+            color=text_color,
+            font=self.FONT_FAMILY,
+            method='label'
+        ).set_duration(total_duration)
+        
+        # Position elements
+        accent_positioned = accent_bar.set_position((0, 0))
+        
+        number_bg_positioned = number_background.set_position((accent_width, 0))
+        
+        # Center number text in number box (only if number exists)
+        if number_text:
+            number_x = accent_width + (number_box_width - number_text.w) // 2
+            number_y = (height - number_text.h) // 2
+            number_positioned = number_text.set_position((number_x, number_y))
+        
+        # Position name text in name box
+        name_x = accent_width + number_box_width + text_margin
+        name_y = (height - name_text.h) // 2
+        name_positioned = name_text.set_position((name_x, name_y))
+        
+        # Composite all elements
+        elements = [
+            background,
+            accent_positioned,
+            number_bg_positioned,
+            name_positioned
+        ]
+        
+        # Add number text only if it exists
+        if number_text:
+            elements.insert(-1, number_positioned)  # Insert before name_positioned
+        
+        return CompositeVideoClip(elements, size=(total_width, height))
     
     def _get_resolution_category(self, video_width):
         """Determine resolution category based on video width"""
@@ -565,6 +742,29 @@ class SoccerScoreOverlay:
         hex_color = hex_color.lstrip('#')
         return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
     
+    def _format_name(self, full_name):
+        """
+        Format name with first name in title case and surname in upper case
+        
+        Args:
+            full_name: Full name string (e.g., "john doe")
+        
+        Returns:
+            Formatted name (e.g., "John DOE")
+        """
+        name_parts = full_name.strip().split()
+        if len(name_parts) == 0:
+            return full_name
+        elif len(name_parts) == 1:
+            # Single name - treat as surname (uppercase)
+            return name_parts[0].upper()
+        else:
+            # Multiple parts - first name(s) in title case, last name in upper case
+            first_names = name_parts[:-1]
+            surname = name_parts[-1]
+            formatted_first = ' '.join([name.title() for name in first_names])
+            return f"{formatted_first} {surname.upper()}"
+    
     def set_overlay_position(self, x_margin, y_margin):
         """
         Set the position of overlays
@@ -631,6 +831,33 @@ class SoccerScoreOverlay:
             self.LINEUP_ANIMATION_DURATION = animation_duration
         if stagger_delay is not None:
             self.LINEUP_STAGGER_DELAY = stagger_delay
+    
+    def set_lineup_colors(self, background_color=None, name_box_color=None, team_text_color=None, 
+                         player_text_color=None, director_text_color=None, 
+                         number_box_color=None):
+        """
+        Configure lineup colors
+        
+        Args:
+            background_color: Background color for lineup overlay (RGB tuple with alpha)
+            name_box_color: Background color for name boxes (RGB tuple)
+            team_text_color: Color for team name text
+            player_text_color: Color for player text
+            director_text_color: Color for director text
+            number_box_color: Color for player number boxes (RGB tuple)
+        """
+        if background_color is not None:
+            self.LINEUP_BACKGROUND_COLOR = background_color
+        if name_box_color is not None:
+            self.LINEUP_NAME_BOX_COLOR = name_box_color
+        if team_text_color is not None:
+            self.LINEUP_TEAM_TEXT_COLOR = team_text_color
+        if player_text_color is not None:
+            self.LINEUP_PLAYER_TEXT_COLOR = player_text_color
+        if director_text_color is not None:
+            self.LINEUP_DIRECTOR_TEXT_COLOR = director_text_color
+        if number_box_color is not None:
+            self.LINEUP_NUMBER_BOX_COLOR = number_box_color
     
     def add_overlays(self, goals, output_path, custom_notifications=None, lineups=None):
         """
@@ -807,14 +1034,14 @@ class SoccerScoreOverlay:
 # Example usage
 def main():
     
-    video_file_path = ""
+    video_file_path = "/Users/orhanbalci/Downloads/test.mp4"
 
     # Define goals with times (can use MM:SS format or seconds)
     goals = [
-        {"time": "08:20", "team": 1},
-        {"time": "33:22", "team": 2},
-        {"time": "39:08", "team": 1},
-        {"time": "52:04", "team": 1}
+        # {"time": "08:20", "team": 1},
+        # {"time": "33:22", "team": 2},
+        # {"time": "39:08", "team": 1},
+        # {"time": "52:04", "team": 1}
     ]
 
     # goals = [
@@ -828,19 +1055,19 @@ def main():
             "time": "00:05",
             "team": 1,  # AFKA
             "players": [
-                {"number": 1, "name": "Ahmet Kaya"},
-                {"number": 2, "name": "Mehmet Özkan"},
-                {"number": 3, "name": "Ali Demir"},
-                {"number": 4, "name": "Hasan Yılmaz"},
-                {"number": 5, "name": "İbrahim Koç"},
-                {"number": 6, "name": "Murat Aslan"},
-                {"number": 7, "name": "Emre Şahin"},
-                {"number": 8, "name": "Burak Taş"},
-                {"number": 9, "name": "Oğuz Kara"},
-                {"number": 10, "name": "Serkan Avcı"},
-                {"number": 11, "name": "Tolga Erdoğan"}
+                {"number": 1, "name": "Önder Özen"},
+                {"number": 2, "name": "Onur Çapan"},
+                {"number": 3, "name": "Ramazan Günay"},
+                {"number": 4, "name": "Hakan Köroğlu"},
+                {"number": 5, "name": "Cüneyt Taşyürek"},
+                {"number": 6, "name": "Necati Yatkak"},
+                {"number": 7, "name": "Şükrü Karadirek"},
+                {"number": 8, "name": "Gökhan Uysal"},
+                {"number": 9, "name": "Süleyman Demirel"},
+                {"number": 10, "name": "Yusuf Uyar"},
+                {"number": 11, "name": "Fatih Manga"}
             ],
-            "director": "Fatih Terim",
+            "director": "Ramazan Üçkuyulu",
             "display_duration": 6.0,
             "animation_duration": 0.4,
             "stagger_delay": 0.15
@@ -849,19 +1076,19 @@ def main():
             "time": "00:15",
             "team": 2,  # AFYON
             "players": [
-                {"number": 1, "name": "Volkan Demirel"},
-                {"number": 2, "name": "Gökhan Gönül"},
-                {"number": 3, "name": "Serdar Aziz"},
-                {"number": 4, "name": "Mehmet Topal"},
-                {"number": 5, "name": "Josef de Souza"},
-                {"number": 6, "name": "Luiz Gustavo"},
-                {"number": 7, "name": "Gökhan Töre"},
-                {"number": 8, "name": "Tolgay Arslan"},
-                {"number": 9, "name": "Cenk Tosun"},
-                {"number": 10, "name": "Oğuzhan Özyakup"},
-                {"number": 11, "name": "Quaresma"}
+                {"number": 1, "name": "Süleyman Şahin"},
+                {"number": 2, "name": "Esma Çevik"},
+                {"number": 3, "name": "Osman Savsar"},
+                {"number": 4, "name": "Arif Yılmaz"},
+                {"number": 5, "name": "Hüseyin Coşkun"},
+                {"number": 6, "name": "Ali Çaltepe"},
+                {"number": 7, "name": "Önder Özen"},
+                {"number": 8, "name": "Onur Çapan"},
+                {"number": 9, "name": "Ramazan Günay"},
+                {"number": 10, "name": "Hakan Köroğlu"},
+                {"number": 11, "name": "Cüneyt Taşyürek"}
             ],
-            "director": "Şenol Güneş",
+            "director": "Necati Yatkak",
             "display_duration": 6.0,
             "animation_duration": 0.4,
             "stagger_delay": 0.15
@@ -870,20 +1097,20 @@ def main():
     
     # Optional: Define custom notifications (replaces auto-generated goal notifications)
     custom_notifications = [
-        {"time": "08:21", "text": "GOLL!", "color": "#A50044", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
-        {"time": "08:26", "text": "MVLUT", "color": "#A50044", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
-        {"time": "33:23", "text": "GOLL!", "color": "#FEBE10", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
-        {"time": "39:09", "text": "GOLL!", "color": "#A50044", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
-        {"time": "39:14", "text": "SALIH", "color": "#A50044", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
-        {"time": "52:05", "text": "GOLL!", "color": "#A50044", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
-        {"time": "52:10", "text": "SALIH", "color": "#A50044", "text_color": "white", 
-         "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "08:21", "text": "GOLL!", "color": "#A50044", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "08:26", "text": "MVLUT", "color": "#A50044", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "33:23", "text": "GOLL!", "color": "#FEBE10", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "39:09", "text": "GOLL!", "color": "#A50044", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "39:14", "text": "SALIH", "color": "#A50044", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "52:05", "text": "GOLL!", "color": "#A50044", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
+        # {"time": "52:10", "text": "SALIH", "color": "#A50044", "text_color": "white", 
+        #  "display_duration": 3.0, "animation_duration": 1.2},
     ]
     
     # Initialize with video path, team names, colors, and overlay settings

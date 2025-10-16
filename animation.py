@@ -403,12 +403,71 @@ class OverlayAnimations:
         return clip.fl(lambda gf, t: make_frame(t))
     
     @staticmethod
-    def combine_animations(clip, *animations):
-        """Apply multiple animations in sequence"""
-        result = clip
-        for animation_func in animations:
-            result = animation_func(result)
-        return result
+    def combine_animations(clip, *animation_configs):
+        """
+        Apply multiple animations in sequence, waiting for each to finish before starting the next
+        
+        Args:
+            clip: The clip to animate
+            *animation_configs: Tuples of (animation_function, duration, **kwargs) or just animation_function
+                               If just function, duration defaults to 0.5 seconds
+        
+        Example:
+            combine_animations(
+                clip,
+                (OverlayAnimations.fade_in, 0.5, {'easing': Easing.ease_out_quad}),
+                (OverlayAnimations.slide_in_from_top, 0.8, {'easing': Easing.ease_out_bounce}),
+                (OverlayAnimations.pulse, 0.3, {'scale_max': 1.2})
+            )
+        """
+        if not animation_configs:
+            return clip
+        
+        # Parse animation configurations
+        parsed_configs = []
+        total_duration = 0
+        
+        for config in animation_configs:
+            if callable(config):
+                # Just a function, use default duration
+                parsed_configs.append((config, 0.5, {}))
+                total_duration += 0.5
+            elif isinstance(config, tuple) and len(config) >= 2:
+                func, duration = config[0], config[1]
+                kwargs = config[2] if len(config) > 2 else {}
+                parsed_configs.append((func, duration, kwargs))
+                total_duration += duration
+            else:
+                raise ValueError("Animation config must be callable or tuple (func, duration, kwargs)")
+        
+        # Create a new clip with the total duration
+        result_clip = clip.set_duration(total_duration)
+        
+        # Apply animations sequentially by time segments
+        current_time = 0
+        
+        for i, (animation_func, duration, kwargs) in enumerate(parsed_configs):
+            # Create a temporary clip for this animation segment
+            segment_clip = clip.set_duration(duration)
+            
+            # Apply the animation to the segment
+            animated_segment = animation_func(segment_clip, duration=duration, **kwargs)
+            
+            # Set the timing for this segment
+            animated_segment = animated_segment.set_start(current_time)
+            
+            if i == 0:
+                # First animation becomes the base
+                result_clip = animated_segment
+            else:
+                # Composite subsequent animations
+                from moviepy.editor import CompositeVideoClip
+                result_clip = CompositeVideoClip([result_clip, animated_segment])
+            
+            current_time += duration
+        
+        return result_clip
+    
     
     @staticmethod
     def goal_notification_sequence(clip, slide_duration=1.2, display_duration=3.0, entrance_easing=None, exit_easing=None):
@@ -512,10 +571,23 @@ class AnimationPresets:
     
     @staticmethod
     def smooth_entrance(clip, duration=0.6, easing=None):
-        """Smooth fade + slide entrance with easing"""
+        """Smooth fade + slide entrance with easing (sequential)"""
         if easing is None:
             easing = Easing.ease_out_cubic
+        
+        # Use sequential animations - first fade in, then slide in
         return OverlayAnimations.combine_animations(
+            clip,
+            (lambda c, **kw: OverlayAnimations.fade_in(c, easing=easing, **kw), duration * 0.4),
+            (lambda c, **kw: OverlayAnimations.slide_in_from_top(c, easing=easing, **kw), duration * 0.6)
+        )
+    
+    @staticmethod
+    def smooth_entrance_parallel(clip, duration=0.6, easing=None):
+        """Smooth fade + slide entrance with easing (parallel - old behavior)"""
+        if easing is None:
+            easing = Easing.ease_out_cubic
+        return OverlayAnimations.combine_animations_parallel(
             clip,
             lambda c: OverlayAnimations.fade_in(c, duration, easing),
             lambda c: OverlayAnimations.slide_in_from_top(c, duration, easing)
@@ -523,13 +595,15 @@ class AnimationPresets:
     
     @staticmethod
     def smooth_exit(clip, duration=0.6, easing=None):
-        """Smooth fade + slide exit with easing"""
+        """Smooth fade + slide exit with easing (sequential)"""
         if easing is None:
             easing = Easing.ease_in_cubic
+        
+        # Use sequential animations - first slide out, then fade out
         return OverlayAnimations.combine_animations(
             clip,
-            lambda c: OverlayAnimations.fade_out(c, duration, easing),
-            lambda c: OverlayAnimations.slide_out_to_bottom(c, duration, easing)
+            (lambda c, **kw: OverlayAnimations.slide_out_to_bottom(c, easing=easing, **kw), duration * 0.6),
+            (lambda c, **kw: OverlayAnimations.fade_out(c, easing=easing, **kw), duration * 0.4)
         )
     
     @staticmethod
@@ -549,13 +623,15 @@ class AnimationPresets:
     
     @staticmethod
     def professional_entrance(clip, duration=0.5, easing=None):
-        """Professional slide + fade entrance with easing"""
+        """Professional slide + fade entrance with easing (sequential)"""
         if easing is None:
             easing = Easing.ease_out_quad
+        
+        # Use sequential animations
         return OverlayAnimations.combine_animations(
             clip,
-            lambda c: OverlayAnimations.slide_in_from_left(c, duration, easing),
-            lambda c: OverlayAnimations.fade_in(c, duration * 0.7, easing)
+            (lambda c, **kw: OverlayAnimations.slide_in_from_left(c, easing=easing, **kw), duration * 0.7),
+            (lambda c, **kw: OverlayAnimations.fade_in(c, easing=easing, **kw), duration * 0.3)
         )
     
     @staticmethod
@@ -573,6 +649,7 @@ class AnimationPresets:
             easing=easing
         )
 
+def demo_animations():
     """Demo showing how to use animations with easing"""
     from moviepy.editor import TextClip, ColorClip, VideoFileClip
     
@@ -617,12 +694,19 @@ class AnimationPresets:
         easing=Easing.ease_out_expo
     )
     
-    # 5. Combine multiple animations with different easings
+    # 5. Sequential animations with the new combine_animations
     animated_overlay = OverlayAnimations.combine_animations(
         overlay,
+        (lambda c, **kw: OverlayAnimations.fade_in(c, easing=Easing.ease_out_quad, **kw), 0.5),
+        (lambda c, **kw: OverlayAnimations.slide_in_from_top(c, easing=Easing.ease_out_back, **kw), 0.5),
+        (lambda c, **kw: OverlayAnimations.pulse(c, easing=lambda t: np.sin(t * np.pi), **kw), 0.3)
+    )
+    
+    # 6. Parallel animations (old behavior) 
+    animated_overlay_parallel = OverlayAnimations.combine_animations_parallel(
+        overlay,
         lambda c: OverlayAnimations.fade_in(c, 0.5, Easing.ease_out_quad),
-        lambda c: OverlayAnimations.slide_in_from_top(c, 0.5, Easing.ease_out_back),
-        lambda c: OverlayAnimations.pulse(c, 0.3, easing=lambda t: np.sin(t * np.pi))
+        lambda c: OverlayAnimations.slide_in_from_top(c, 0.5, Easing.ease_out_back)
     )
     
     return animated_overlay
