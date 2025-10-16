@@ -1,11 +1,15 @@
 """
 Soccer Score Overlay System
 Overlays score information onto soccer match videos based on goal times
+
+Player positions are available through the PlayerPosition enum in overlay_types.py.
+See overlay_types.PlayerPosition for all available position abbreviations.
 """
 
 from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, ColorClip
 from datetime import timedelta
 from animation import OverlayAnimations, Easing
+from overlay_types import PlayerPosition
 
 class SoccerScoreOverlay:
     # ========== CONFIGURATION PARAMETERS ==========
@@ -233,7 +237,8 @@ class SoccerScoreOverlay:
         
         Args:
             team_name: Name of the team
-            players: List of dicts with format [{"number": 1, "name": "Player Name"}, ...]
+            players: List of dicts with format [{"number": 1, "name": "Player Name", "position": "GK"}, ...]
+                    position is optional and should use PlayerPosition enum values (e.g., PlayerPosition.GOALKEEPER.value)
             director: Name of the director/coach
             team_color: Team color (hex format or RGB tuple)
             display_duration: How long to show lineup (seconds). If None, uses default
@@ -319,7 +324,8 @@ class SoccerScoreOverlay:
             accent_width=accent_width,
             text_margin=text_margin,
             total_duration=total_duration,
-            name_text_color=self.LINEUP_TEAM_TEXT_COLOR
+            name_text_color=self.LINEUP_TEAM_TEXT_COLOR,
+            player_position=""  # No position for team name
         )
         
         team_positioned = team_item.set_position((0, current_y))
@@ -334,9 +340,11 @@ class SoccerScoreOverlay:
         
         # Create player items (separate number and name boxes)
         for player in players:
+            player_position = player.get('position', '')  # Get position or empty string if not provided
             player_item = self._create_lineup_player_item(
                 player_number=str(player['number']),
                 player_name=self._format_name(player['name']),  # Format with title case first name, upper case surname
+                player_position=player_position,  # Add position parameter
                 player_font_size=player_font_size,
                 number_box_width=number_box_width,
                 name_box_width=name_box_width,
@@ -369,7 +377,8 @@ class SoccerScoreOverlay:
             accent_width=accent_width,
             text_margin=text_margin,
             total_duration=total_duration,
-            name_text_color=self.LINEUP_DIRECTOR_TEXT_COLOR
+            name_text_color=self.LINEUP_DIRECTOR_TEXT_COLOR,
+            player_position=""  # No position for director
         )
         
         director_positioned = director_item.set_position((0, current_y))
@@ -516,7 +525,8 @@ class SoccerScoreOverlay:
     
     def _create_lineup_player_item(self, player_number, player_name, player_font_size, 
                                  number_box_width, name_box_width, height, accent_color, 
-                                 accent_width, text_margin, total_duration=1.0, name_text_color=None):
+                                 accent_width, text_margin, total_duration=1.0, name_text_color=None,
+                                 player_position=""):
         """
         Create a player item with separate number and name boxes
         
@@ -532,6 +542,7 @@ class SoccerScoreOverlay:
             text_margin: Margin from accent bar to text
             total_duration: Duration for the clip
             name_text_color: Custom color for name text (if None, uses default player color)
+            player_position: Player position abbreviation (e.g., "GK", "ST", "CM")
         
         Returns:
             Composite clip with number box and name box
@@ -569,10 +580,14 @@ class SoccerScoreOverlay:
         else:
             number_text = None
         
-        # Create player name text with custom color if provided
+        # Create player name text with position (if provided)
+        display_name = player_name
+        if player_position:
+            display_name = f"{player_name} ({player_position})"
+        
         text_color = name_text_color if name_text_color is not None else self.LINEUP_PLAYER_TEXT_COLOR
         name_text = TextClip(
-            player_name,
+            display_name,
             fontsize=player_font_size,
             color=text_color,
             font=self.FONT_FAMILY,
@@ -764,6 +779,29 @@ class SoccerScoreOverlay:
             surname = name_parts[-1]
             formatted_first = ' '.join([name.title() for name in first_names])
             return f"{formatted_first} {surname.upper()}"
+    
+    @staticmethod
+    def get_all_positions():
+        """
+        Get all available player positions
+        
+        Returns:
+            List of all position abbreviations
+        """
+        return [position.value for position in PlayerPosition]
+    
+    @staticmethod
+    def is_valid_position(position):
+        """
+        Check if a position abbreviation is valid
+        
+        Args:
+            position: Position abbreviation to validate
+        
+        Returns:
+            True if position is valid, False otherwise
+        """
+        return position in [pos.value for pos in PlayerPosition]
     
     def set_overlay_position(self, x_margin, y_margin):
         """
@@ -1055,17 +1093,17 @@ def main():
             "time": "00:05",
             "team": 1,  # AFKA
             "players": [
-                {"number": 1, "name": "Önder Özen"},
-                {"number": 2, "name": "Onur Çapan"},
-                {"number": 3, "name": "Ramazan Günay"},
-                {"number": 4, "name": "Hakan Köroğlu"},
-                {"number": 5, "name": "Cüneyt Taşyürek"},
-                {"number": 6, "name": "Necati Yatkak"},
-                {"number": 7, "name": "Şükrü Karadirek"},
-                {"number": 8, "name": "Gökhan Uysal"},
-                {"number": 9, "name": "Süleyman Demirel"},
-                {"number": 10, "name": "Yusuf Uyar"},
-                {"number": 11, "name": "Fatih Manga"}
+                {"number": 1, "name": "Önder Özen", "position": PlayerPosition.GOALKEEPER.value},
+                {"number": 2, "name": "Onur Çapan", "position": PlayerPosition.RIGHT_BACK.value},
+                {"number": 3, "name": "Ramazan Günay", "position": PlayerPosition.RIGHT_CENTER_BACK.value},
+                {"number": 4, "name": "Hakan Köroğlu", "position": PlayerPosition.LEFT_CENTER_BACK.value},
+                {"number": 5, "name": "Cüneyt Taşyürek", "position": PlayerPosition.LEFT_BACK.value},
+                {"number": 6, "name": "Necati Yatkak", "position": PlayerPosition.DEFENSIVE_MIDFIELDER.value},
+                {"number": 7, "name": "Şükrü Karadirek", "position": PlayerPosition.CENTRAL_MIDFIELDER.value},
+                {"number": 8, "name": "Gökhan Uysal", "position": PlayerPosition.ATTACKING_MIDFIELDER.value},
+                {"number": 9, "name": "Süleyman Demirel", "position": PlayerPosition.STRIKER.value},
+                {"number": 10, "name": "Yusuf Uyar", "position": PlayerPosition.LEFT_WINGER.value},
+                {"number": 11, "name": "Fatih Manga", "position": PlayerPosition.RIGHT_WINGER.value}
             ],
             "director": "Ramazan Üçkuyulu",
             "display_duration": 6.0,
@@ -1076,17 +1114,17 @@ def main():
             "time": "00:15",
             "team": 2,  # AFYON
             "players": [
-                {"number": 1, "name": "Süleyman Şahin"},
-                {"number": 2, "name": "Esma Çevik"},
-                {"number": 3, "name": "Osman Savsar"},
-                {"number": 4, "name": "Arif Yılmaz"},
-                {"number": 5, "name": "Hüseyin Coşkun"},
-                {"number": 6, "name": "Ali Çaltepe"},
-                {"number": 7, "name": "Önder Özen"},
-                {"number": 8, "name": "Onur Çapan"},
-                {"number": 9, "name": "Ramazan Günay"},
-                {"number": 10, "name": "Hakan Köroğlu"},
-                {"number": 11, "name": "Cüneyt Taşyürek"}
+                {"number": 1, "name": "Süleyman Şahin", "position": PlayerPosition.GOALKEEPER.value},
+                {"number": 2, "name": "Esma Çevik", "position": PlayerPosition.RIGHT_BACK.value},
+                {"number": 3, "name": "Osman Savsar", "position": PlayerPosition.RIGHT_CENTER_BACK.value},
+                {"number": 4, "name": "Arif Yılmaz", "position": PlayerPosition.LEFT_CENTER_BACK.value},
+                {"number": 5, "name": "Hüseyin Coşkun", "position": PlayerPosition.LEFT_BACK.value},
+                {"number": 6, "name": "Ali Çaltepe", "position": PlayerPosition.DEFENSIVE_MIDFIELDER.value},
+                {"number": 7, "name": "Önder Özen", "position": PlayerPosition.CENTRAL_MIDFIELDER.value},
+                {"number": 8, "name": "Onur Çapan", "position": PlayerPosition.ATTACKING_MIDFIELDER.value},
+                {"number": 9, "name": "Ramazan Günay", "position": PlayerPosition.STRIKER.value},
+                {"number": 10, "name": "Hakan Köroğlu", "position": PlayerPosition.LEFT_WINGER.value},
+                {"number": 11, "name": "Cüneyt Taşyürek", "position": PlayerPosition.RIGHT_WINGER.value}
             ],
             "director": "Necati Yatkak",
             "display_duration": 6.0,
